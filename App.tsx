@@ -1,111 +1,93 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { GoogleGenAI } from '@google/genai';
 import { 
   Square, 
   Construction, 
-  Terminal, 
   Info,
   Factory,
   CheckCircle2,
   Scissors,
-  Layers
+  Layers,
+  ArrowRight,
+  ShieldCheck,
+  ShieldAlert
 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [length, setLength] = useState<string>('');
   const [width, setWidth] = useState<string>('');
-  const [skylights, setSkylights] = useState<string>('0');
+  const [skylightQty, setSkylightQty] = useState<string>('0');
+  const [skylightL, setSkylightL] = useState<string>('1');
+  const [skylightW, setSkylightW] = useState<string>('1');
+  const [isIsolated, setIsIsolated] = useState<boolean>(false);
   
   const [results, setResults] = useState<{
     area: number;
-    totalUpstands: number;
+    terracePerimeter: number;
+    skylightPerimeterTotal: number;
+    totalLinear: number;
     upstandArea: number;
     surfaceRolls: number;
     upstandAluRolls: number;
-    equerreRolls: number;
+    equerreRolls: number; // For non-isolated or general count
   } | null>(null);
-
-  const [generatedCode, setGeneratedCode] = useState<string>('');
-  const [isLoadingCode, setIsLoadingCode] = useState<boolean>(false);
 
   // Constants
   const ROLL_SURFACE_5M2 = 5;
   const ROLL_ALU_6M2 = 6;
   const ROLL_EQUERRE_10ML = 10;
   const COVERAGE_FACTOR = 0.9; // 10% loss on membranes
-  const EQUERRE_LOSS_FACTOR = 1.1; // 10% extra for overlaps/corners on strips
+  const EQUERRE_LOSS_FACTOR = 1.1; // 10% extra for overlaps/corners
   const UPSTAND_STRIP_WIDTH = 0.3; 
-  const SKYLIGHT_PERIMETER = 4; 
 
   const calculateSealant = useCallback(() => {
     const l = parseFloat(length);
     const w = parseFloat(width);
-    const s = parseInt(skylights) || 0;
+    const sQty = parseInt(skylightQty) || 0;
+    const sL = parseFloat(skylightL) || 0;
+    const sW = parseFloat(skylightW) || 0;
 
     if (isNaN(l) || isNaN(w) || l <= 0 || w <= 0) {
       setResults(null);
       return;
     }
 
-    // 1. Surface Courante (Rouleaux 5m2)
+    // 1. Surface Courante
     const area = l * w;
     const surfaceRolls = Math.ceil(area / (ROLL_SURFACE_5M2 * COVERAGE_FACTOR));
 
-    // 2. Linéaire Total (Périphérie + Lanterneaux)
+    // 2. Linéaire Terrasse
     const terracePerimeter = 2 * (l + w);
-    const skylightPerim = s * SKYLIGHT_PERIMETER;
-    const totalUpstands = terracePerimeter + skylightPerim;
     
-    // 3. Relevés ALU (Rouleaux 6m2)
-    // Calcul : Linéaire x 0.3m = Surface de relevé
-    const upstandArea = totalUpstands * UPSTAND_STRIP_WIDTH;
+    // 3. Linéaire Lanterneaux
+    const singleSkylightPerim = 2 * (sL + sW);
+    const skylightPerimeterTotal = sQty * singleSkylightPerim;
+    
+    // 4. Linéaire Total pour Relevés
+    const totalLinear = terracePerimeter + skylightPerimeterTotal;
+    
+    // 5. Relevés ALU (Surface développée)
+    const upstandArea = totalLinear * UPSTAND_STRIP_WIDTH;
     const upstandAluRolls = Math.ceil(upstandArea / (ROLL_ALU_6M2 * COVERAGE_FACTOR));
 
-    // 4. Bandes d'équerre (Rouleaux 10ml) + 10% perte
-    const equerreRolls = Math.ceil((totalUpstands * EQUERRE_LOSS_FACTOR) / ROLL_EQUERRE_10ML);
+    // 6. Bandes d'équerre
+    const equerreRolls = Math.ceil((totalLinear * EQUERRE_LOSS_FACTOR) / ROLL_EQUERRE_10ML);
 
     setResults({
       area,
-      totalUpstands,
+      terracePerimeter,
+      skylightPerimeterTotal,
+      totalLinear,
       upstandArea,
       surfaceRolls,
       upstandAluRolls,
       equerreRolls
     });
-  }, [length, width, skylights]);
+  }, [length, width, skylightQty, skylightL, skylightW]);
 
   useEffect(() => {
     calculateSealant();
   }, [calculateSealant]);
-
-  const fetchCCode = async () => {
-    setIsLoadingCode(true);
-    try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-      const prompt = `Génère un programme en langage C pro pour un étancheur.
-      Le programme doit calculer :
-      1. Dimensions terrasse et lanterneaux.
-      2. Surface courante -> Rouleaux de 5m2 (coef 0.9 pour perte).
-      3. Linéaire total de relevés.
-      4. Relevés ALU -> Surface (Linéaire * 0.3m) -> Rouleaux de 6m2 (coef 0.9 pour perte).
-      5. Bandes d'équerre (25cm) -> Rouleaux de 10ml (Linéaire * 1.1 / 10 pour inclure 10% de perte au recouvrement).
-      6. Récapitulatif complet de commande.
-      Commentaires en français.`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: prompt,
-      });
-
-      setGeneratedCode(response.text || "Erreur de génération.");
-    } catch (error) {
-      console.error("Gemini Error:", error);
-      setGeneratedCode("// Erreur de génération. Vérifiez votre clé API.");
-    } finally {
-      setIsLoadingCode(false);
-    }
-  };
 
   return (
     <div className="max-w-md mx-auto min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
@@ -114,91 +96,178 @@ const App: React.FC = () => {
           <div className="p-2 bg-orange-500 rounded-lg shadow-lg shadow-orange-500/20">
             <Construction className="w-6 h-6 text-white" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-orange-100">
-            Expert Étanchéité
+          <h1 className="text-xl font-bold tracking-tight text-orange-100 leading-tight">
+            Calculateur de rouleaux d'étanchéité
           </h1>
         </div>
-        <p className="text-slate-400 text-xs tracking-wide uppercase font-semibold">Calcul avec 10% de perte inclus</p>
+        <p className="text-slate-400 text-[10px] tracking-widest uppercase font-black">Expert Solution V3.1</p>
       </header>
 
       <main className="flex-1 px-6 pb-12 space-y-6">
-        <section className="grid grid-cols-2 gap-4 bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Long. (m)</label>
-            <input type="number" value={length} onChange={(e) => setLength(e.target.value)} placeholder="0.00" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none text-lg font-bold" />
+        {/* Configuration Isolation */}
+        <section className="space-y-3">
+          <div className="flex items-center gap-2 mb-1">
+            <ShieldCheck className="w-4 h-4 text-emerald-500" />
+            <h2 className="text-xs font-bold uppercase text-slate-400">Type de support</h2>
           </div>
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Larg. (m)</label>
-            <input type="number" value={width} onChange={(e) => setWidth(e.target.value)} placeholder="0.00" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none text-lg font-bold" />
+          <button 
+            onClick={() => setIsIsolated(!isIsolated)}
+            className={`w-full p-4 rounded-2xl border flex items-center justify-between transition-all duration-300 ${isIsolated ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-100' : 'bg-slate-900/50 border-slate-800 text-slate-400'}`}
+          >
+            <div className="flex items-center gap-3">
+              {isIsolated ? <ShieldCheck className="w-6 h-6 text-emerald-500" /> : <ShieldAlert className="w-6 h-6 text-slate-500" />}
+              <div className="text-left">
+                <p className="text-sm font-bold">Terrasse Isolée</p>
+                <p className="text-[10px] opacity-60">Impacte les bandes d'équerre (double couche)</p>
+              </div>
+            </div>
+            <div className={`w-12 h-6 rounded-full relative transition-colors ${isIsolated ? 'bg-emerald-500' : 'bg-slate-700'}`}>
+              <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isIsolated ? 'left-7' : 'left-1'}`} />
+            </div>
+          </button>
+        </section>
+
+        {/* Section Terrasse */}
+        <section className="space-y-3">
+          <div className="flex items-center gap-2 mb-1">
+            <Square className="w-4 h-4 text-orange-500" />
+            <h2 className="text-xs font-bold uppercase text-slate-400">Dimensions Terrasse</h2>
           </div>
-          <div className="col-span-2 space-y-1.5">
-            <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Nombre de Lanterneaux</label>
-            <div className="relative">
-              <input type="number" value={skylights} onChange={(e) => setSkylights(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none text-lg font-bold" />
-              <Factory className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-700" />
+          <div className="grid grid-cols-2 gap-4 bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Long. (m)</label>
+              <input type="number" value={length} onChange={(e) => setLength(e.target.value)} placeholder="0.00" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none text-lg font-bold" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Larg. (m)</label>
+              <input type="number" value={width} onChange={(e) => setWidth(e.target.value)} placeholder="0.00" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 focus:ring-2 focus:ring-orange-500 outline-none text-lg font-bold" />
+            </div>
+          </div>
+        </section>
+
+        {/* Section Lanterneaux */}
+        <section className="space-y-3">
+          <div className="flex items-center gap-2 mb-1">
+            <Factory className="w-4 h-4 text-blue-500" />
+            <h2 className="text-xs font-bold uppercase text-slate-400">Détails Lanterneaux</h2>
+          </div>
+          <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800 space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Nombre d'unités</label>
+              <input type="number" value={skylightQty} onChange={(e) => setSkylightQty(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none text-lg font-bold" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">L. Lanterneau (m)</label>
+                <input type="number" value={skylightL} onChange={(e) => setSkylightL(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none text-lg font-bold" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">l. Lanterneau (m)</label>
+                <input type="number" value={skylightW} onChange={(e) => setSkylightW(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none text-lg font-bold" />
+              </div>
             </div>
           </div>
         </section>
 
         {results ? (
           <section className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* Relevés ALU */}
-            <div className="bg-orange-500 rounded-2xl p-5 text-white shadow-xl">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-xs font-bold uppercase opacity-80 text-orange-100">Relevés ALU (6m²)</span>
-                <Layers className="w-5 h-5 opacity-50" />
-              </div>
-              <div className="flex items-baseline gap-2 mb-1">
-                <span className="text-4xl font-black">{results.totalUpstands.toFixed(1)}</span>
-                <span className="text-xl font-medium">ml</span>
-              </div>
-              <p className="text-[10px] opacity-90 mb-4 italic">Soit {results.upstandArea.toFixed(2)} m² (Dévelopé 0.30m)</p>
+            {/* Linéaire Total Info */}
+            <div className="flex items-center justify-between px-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+               <span>Périphérie Totale (Développé)</span>
+               <span className="text-slate-300 bg-slate-800 px-2 py-0.5 rounded-full">{results.totalLinear.toFixed(2)} ml</span>
+            </div>
+
+            {/* Équerres (Dépendant de l'isolation) */}
+            <div className="bg-slate-900 rounded-2xl p-5 border border-slate-800 border-l-4 border-l-blue-500 relative">
+              <Scissors className="absolute right-4 top-4 w-5 h-5 text-blue-500 opacity-30" />
+              <h3 className="text-xs font-bold uppercase text-slate-500 mb-4 tracking-wider flex items-center gap-2">
+                Bandes d'équerre (10ml)
+                {isIsolated && <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded italic">Isolé</span>}
+              </h3>
               
-              <div className="bg-white/10 rounded-lg p-3 flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase">Besoin Rouleaux ALU</span>
-                <span className="text-2xl font-black">{results.upstandAluRolls}</span>
+              <div className="space-y-4">
+                {!isIsolated ? (
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-4xl font-black text-slate-100">{results.equerreRolls}</span>
+                    <span className="text-sm font-bold text-slate-500 uppercase tracking-tighter">Rouleaux Standards</span>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="flex justify-between items-center bg-slate-950 p-3 rounded-xl border border-slate-800">
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">Largeur 0.25m</p>
+                        <p className="text-2xl font-black text-slate-100">{results.equerreRolls} <span className="text-xs text-slate-500 font-bold uppercase">Rlx</span></p>
+                      </div>
+                      <div className="text-right">
+                         <p className="text-[9px] font-medium text-slate-600 uppercase">Couche 1</p>
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-center bg-slate-950 p-3 rounded-xl border border-slate-800">
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">Largeur 0.33m</p>
+                        <p className="text-2xl font-black text-slate-100">{results.equerreRolls} <span className="text-xs text-slate-500 font-bold uppercase">Rlx</span></p>
+                      </div>
+                      <div className="text-right">
+                         <p className="text-[9px] font-medium text-slate-600 uppercase">Couche 2</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-4 flex items-center gap-2 text-[10px] text-blue-400 font-bold bg-blue-500/10 p-2 rounded-lg">
+                <ArrowRight className="w-3 h-3" />
+                <span>Inclus 10% de perte (recouvrements)</span>
               </div>
             </div>
 
-            {/* Équerres */}
-            <div className="bg-slate-900 rounded-2xl p-5 border border-slate-800 border-l-4 border-l-blue-500">
-              <div className="flex justify-between items-center mb-3">
-                <span className="text-xs font-bold uppercase text-slate-500">Bandes d'équerre (10ml)</span>
-                <Scissors className="w-5 h-5 text-blue-500 opacity-50" />
+            {/* Relevés ALU */}
+            <div className="bg-orange-500 rounded-2xl p-5 text-white shadow-xl relative overflow-hidden">
+              <Layers className="absolute -right-4 -bottom-4 w-24 h-24 opacity-10 rotate-12" />
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-xs font-bold uppercase opacity-80 text-orange-100">Rouleaux ALU (6m²)</span>
+                <span className="bg-orange-600 px-2 py-1 rounded text-[10px] font-black tracking-tighter">FINITION ALU</span>
               </div>
               <div className="flex items-center justify-between">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-2xl font-bold text-slate-200">{results.equerreRolls}</span>
-                  <span className="text-xs text-slate-500 uppercase font-bold">Rouleaux</span>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-5xl font-black">{results.upstandAluRolls}</span>
+                  <span className="text-lg font-bold opacity-80 uppercase">Rlx</span>
                 </div>
-                <div className="text-[10px] text-blue-400 font-bold italic">+10% Recouvrement inclus</div>
+                <div className="text-right">
+                  <p className="text-[10px] font-bold opacity-70 uppercase leading-none">Surf. Relevé</p>
+                  <p className="text-xl font-black">{results.upstandArea.toFixed(2)} m²</p>
+                </div>
               </div>
             </div>
 
             {/* Surface Courante */}
-            <div className="bg-slate-900 rounded-2xl p-5 border border-slate-800 border-l-4 border-l-orange-500">
+            <div className="bg-slate-900 rounded-2xl p-5 border border-slate-800 border-l-4 border-l-emerald-500">
               <div className="flex justify-between items-center mb-3">
-                <span className="text-xs font-bold uppercase text-slate-500">Surface Courante (5m²)</span>
-                <Square className="w-5 h-5 text-orange-500 opacity-30" />
+                <span className="text-xs font-bold uppercase text-slate-500">Étanchéité Courante (5m²)</span>
+                <Square className="w-5 h-5 text-emerald-500 opacity-30" />
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-baseline gap-1">
-                  <span className="text-2xl font-bold text-slate-200">{results.surfaceRolls}</span>
+                  <span className="text-3xl font-black text-slate-100">{results.surfaceRolls}</span>
                   <span className="text-xs text-slate-500 uppercase font-bold">Rouleaux</span>
                 </div>
-                <div className="text-[10px] text-slate-500 font-medium">{results.area.toFixed(2)} m² total</div>
+                <div className="text-right">
+                   <span className="text-[10px] text-slate-500 font-medium block">Terrasse seule</span>
+                   <span className="text-xs font-bold text-emerald-500">{results.area.toFixed(2)} m²</span>
+                </div>
               </div>
             </div>
 
-            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
-               <div className="flex items-center gap-3 mb-2">
+            <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
+               <div className="flex items-center gap-3 mb-3">
                  <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                 <p className="text-xs text-emerald-400 font-bold uppercase tracking-wider">Récapitulatif Commande</p>
+                 <p className="text-xs text-slate-300 font-bold uppercase tracking-wider">Récapitulatif Chantier</p>
                </div>
-               <div className="grid grid-cols-2 gap-2 text-[11px] font-medium text-slate-300">
-                  <div className="p-2 bg-slate-900/50 rounded-lg">Surface: <span className="text-emerald-400">{results.surfaceRolls} rlx</span></div>
-                  <div className="p-2 bg-slate-900/50 rounded-lg">ALU 6m²: <span className="text-emerald-400">{results.upstandAluRolls} rlx</span></div>
-                  <div className="p-2 bg-slate-900/50 rounded-lg col-span-2 text-center">Équerres: <span className="text-emerald-400">{results.equerreRolls} rlx</span></div>
+               <div className="space-y-1 text-[11px] text-slate-500 font-medium">
+                  <div className="flex justify-between"><span>Périmètre Terrasse:</span> <span className="text-slate-300">{results.terracePerimeter.toFixed(2)} ml</span></div>
+                  <div className="flex justify-between"><span>Périmètre Lanterneaux:</span> <span className="text-slate-300">{results.skylightPerimeterTotal.toFixed(2)} ml</span></div>
+                  <div className="h-px bg-slate-800 my-1" />
+                  <div className="flex justify-between font-bold"><span>Total Linéaire:</span> <span className="text-orange-500">{results.totalLinear.toFixed(2)} ml</span></div>
                </div>
             </div>
           </section>
@@ -208,48 +277,24 @@ const App: React.FC = () => {
           </div>
         )}
 
-        <section className="space-y-3">
-          <button
-            onClick={fetchCCode}
-            disabled={isLoadingCode}
-            className="w-full bg-slate-800 hover:bg-slate-700 active:bg-slate-600 py-4 rounded-2xl font-bold flex items-center justify-center gap-3 border border-slate-700 transition-all shadow-lg"
-          >
-            {isLoadingCode ? <div className="w-5 h-5 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" /> : <Terminal className="w-5 h-5 text-orange-500" />}
-            Générer le programme C expert
-          </button>
-
-          {generatedCode && (
-            <div className="bg-black/80 border border-slate-800 rounded-2xl overflow-hidden animate-in zoom-in duration-300">
-              <div className="bg-slate-900/80 px-4 py-2 border-b border-slate-800 flex justify-between items-center">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Source C Code</span>
-                <div className="flex gap-1">
-                  <div className="w-2 h-2 rounded-full bg-red-500/50" />
-                  <div className="w-2 h-2 rounded-full bg-orange-500/50" />
-                  <div className="w-2 h-2 rounded-full bg-emerald-500/50" />
-                </div>
-              </div>
-              <div className="p-4 overflow-x-auto max-h-72 font-mono text-[10px] text-orange-200/80 leading-relaxed whitespace-pre scrollbar-hide">
-                {generatedCode}
-              </div>
-            </div>
-          )}
-        </section>
-
         <div className="bg-blue-900/10 border border-blue-500/20 rounded-2xl p-4 flex items-start gap-4">
           <div className="p-2 bg-blue-500/20 rounded-lg">
             <Info className="w-4 h-4 text-blue-400" />
           </div>
           <div className="space-y-1 text-[10px] text-blue-300/80 leading-relaxed">
-            <p className="font-bold text-blue-400 uppercase tracking-wide">Méthodologie Pro :</p>
-            <p>• <strong>Bandes d'équerre :</strong> Linéaire × 1.10 (pour les 10cm de recouvrement par raccord). Divisé par 10ml.</p>
-            <p>• <strong>Membranes :</strong> Coefficient 0.9 appliqué sur la surface utile (10% de perte inclus).</p>
-            <p>• <strong>Dévelopé Relevé :</strong> 0.30m (standard pour 15cm de hauteur finie).</p>
+            <p className="font-bold text-blue-400 uppercase tracking-wide">Note Technique :</p>
+            {isIsolated ? (
+              <p>• <strong>Isolation :</strong> Double équerre obligatoire (0,25m et 0,33m) selon NF DTU 43.1.</p>
+            ) : (
+              <p>• <strong>Équerre :</strong> Bande unique de renfort d'angle sur support non isolé.</p>
+            )}
+            <p>• <strong>Calculs :</strong> Pertes de 10% incluses sur toutes les membranes.</p>
           </div>
         </div>
       </main>
 
       <footer className="py-8 border-t border-slate-900 text-center opacity-40">
-        <p className="text-[9px] uppercase tracking-[0.2em] font-black">Expert Étanchéité Solution v2.6</p>
+        <p className="text-[9px] uppercase tracking-[0.2em] font-black">Expert Étanchéité Solution v3.1</p>
       </footer>
     </div>
   );
